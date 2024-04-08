@@ -1,0 +1,88 @@
+%%cuda
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+#define N 3
+#define TILE_WIDTH 3
+
+__global__ void matrixSumAndModify(int *a, int *b, int *c, int *result, int width) {
+    int row = threadIdx.y + blockIdx.y * blockDim.y;
+    int col = threadIdx.x + blockIdx.x * blockDim.x;
+    
+    if (row < width && col < width) {
+        c[row * width + col] = a[row * width + col] + b[row * width + col];
+        atomicAdd(&result[row], c[row * width + col]); // Summing row elements
+        
+        // Modify elements based on the sum of row elements
+        if (result[row] % 2 == 0) {
+            c[row * width + col] = 0;
+        } else {
+            c[row * width + col] = 1;
+        }
+    }
+}
+
+int main() {
+    int *a, *b, *c, *result;
+    int *d_a, *d_b, *d_c, *d_result;
+    int size = N * N * sizeof(int);
+    int resultSize = N * sizeof(int);
+
+    // Allocate memory for matrices and result array on host
+    a = (int*)malloc(size);
+    b = (int*)malloc(size);
+    c = (int*)malloc(size);
+    result = (int*)malloc(resultSize);
+    
+    // Initialize matrices 'a' and 'b' with random values
+    srand(time(NULL));
+    for (int i = 0; i < N * N; i++) {
+        a[i] = rand() % 10;
+        b[i] = rand() % 10;
+    }
+    
+    // Allocate memory for matrices and result array on device
+    cudaMalloc((void**)&d_a, size);
+    cudaMalloc((void**)&d_b, size);
+    cudaMalloc((void**)&d_c, size);
+    cudaMalloc((void**)&d_result, resultSize);
+    
+    // Copy matrices 'a' and 'b' from host to device
+    cudaMemcpy(d_a, a, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b, b, size, cudaMemcpyHostToDevice);
+    cudaMemset(d_result, 0, resultSize); // Initialize result array to 0
+    
+    // Define grid and block dimensions
+    dim3 dimgrid((N - 1) / TILE_WIDTH + 1, (N - 1) / TILE_WIDTH + 1, 1);
+    dim3 dimblock(TILE_WIDTH, TILE_WIDTH, 1);
+    
+    // Launch kernel
+    matrixSumAndModify<<<dimgrid, dimblock>>>(d_a, d_b, d_c, d_result, N);
+    
+    // Copy result matrix 'c' from device to host
+    cudaMemcpy(c, d_c, size, cudaMemcpyDeviceToHost);
+    
+    // Print the result matrix 'c'
+    printf("Result Matrix C:\n");
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            printf("%d ", c[i * N + j]);
+        }
+        printf("\n");
+    }
+    
+    // Free device memory
+    cudaFree(d_a);
+    cudaFree(d_b);
+    cudaFree(d_c);
+    cudaFree(d_result);
+    
+    // Free host memory
+    free(a);
+    free(b);
+    free(c);
+    free(result);
+
+    return 0;
+}
